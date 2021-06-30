@@ -1,0 +1,238 @@
+---
+title: "M215 Final Project"
+author: "Andy Liu, Xinyang Li, Yuetong Lyu"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(survival)
+library(KMsurv)
+library(fastcmprsk)
+library(cmprsk) # for competing risks
+library(readxl)
+library(survMisc)
+directory <- "~/Desktop/UCLA/Fall_2020/Biostat_M215/Project/scleroderma.xls"
+```
+
+```{r}
+df <- read.table(pipe("pbpaste"), sep = "\t", header = TRUE)
+head(df)
+
+# df$delta <- ifelse(df$failure_type == 0, 0, 1)
+df$delta[df$failure_type == 1] <- 1
+df$delta[df$failure_type == 0 | df$failure_type == 2] <- 0
+df$TXGROUP = ifelse(df$TXGROUP == "A", 1, 0)
+df$Z1 = ifelse(df$MAXFIB == 1, 1, 0)
+df$Z2 = ifelse(df$MAXFIB == 2, 1, 0)
+df$Z3 = ifelse(df$MAXFIB == 3, 1, 0)
+df$Z4 = ifelse(df$MAXFIB == 4, 1, 0)
+df$Z6 = ifelse(df$MAXFIB == 6, 1, 0)
+```
+
+```{r}
+fit <- survfit(Surv(surv, delta) ~ 1, data = df)
+plot(fit, main = 'Product-Limit Survival Estimates',
+          ylab = 'Survival Probability', xlab = 'Time')
+```
+
+```{r}
+# Plotting -log[S(t)] vs. t
+plot(-log(fit$surv) ~ fit$time, type = 's', col = 'blue',
+          main = 'Estimated Cumulative Hazard Function', ylab = 'H(t) = -log[S(t)]',
+          xlab = 'Time (Months)',
+          xlim = c(0, 25))
+
+##fit an exponential survival regression model
+fit.exp <- survreg(Surv(df[df$surv != 0, ]$surv, df[df$surv != 0, ]$delta) ~ 1,
+                   dist = "exponential")
+lambdahat <- exp(-fit.exp$coefficients)
+hazardhat <- fit$time * lambdahat
+
+lines(fit$time, hazardhat, col = "black")
+legend(0, 0.115, legend = c("exp", "K-M"), col = c("black", "blue"), lty = 1, cex = 1)
+```
+
+```{r}
+h               <- fit$n.event/fit$n.risk
+H.na            <- cumsum(h) #Nelson-Aalen estimates
+s               <- fit$n.event/fit$n.risk^2
+V.na            <- cumsum(s) #Variance estimate for the N-A estimator
+NAest           <- cbind(H.na, sqrt(V.na))
+colnames(NAest) <- c("NA-Est.","Std. Err")
+
+NAest
+
+#Plot of the Nelson-Aalen Estimate
+plot(H.na ~ fit$time, type = 's',
+     main="Plot of Nelson-Aalen Estimates", xlab="Time (Months)",
+     ylab="Estimated Cum. Hazard Function",
+     xlim = c(0, 25))
+
+lines(fit$time, hazardhat, col = "blue")
+legend(0, 0.11, legend = c("exp", "NA-Est"), col = c("blue", "black"), lty = 1, cex = 1)
+```
+
+```{r}
+H.km <- -log(fit$surv); H.km
+#Comparing the Nelson-Aalen Estimate to the Kaplan-Meier Estimate
+plot(H.km~fit$time, xlab = "Time (Months)", ylab = " Estimated Cumulative Hazard Function",
+     main = "Different H(t) Estimates", type = "s", col = "red")
+lines(H.na~fit$time, type = "s", lty = 2, col = "blue")
+legend("bottomright", c("Kaplan-Meier", "Nelson-Aalen"), lty = 1:2,
+     col = c("red", "blue"), bty = "n", cex = .9)
+```
+
+```{r}
+####### Survival Prob. #######
+fit <- survfit(Surv(surv, delta) ~ 1, data = df)
+summary(fit)
+plot(fit, main = 'Product-Limit Survival Estimates', 
+     ylab = 'Survival Probability', xlab = 'Time')
+
+fit.exp <- survreg(Surv(surv, delta) ~ 1, dist = "exponential", 
+                   data = df[df$surv != 0,])
+```
+
+```{r}
+#### By TXGROUP ####
+fit.bmt <- survfit(Surv(surv, delta)~TXGROUP, data = df)
+plot(fit.bmt, col = c('red', 'blue'), lty = c(1, 2), 
+     ylab = 'Estimated Survival Function', xlab = 'Time', 
+     main = 'Kaplan-Meier Estimates by Treatment Group')
+
+legend("bottomleft", c("CYC", "Placebo"), lty = 1:2,
+       col = c("red", "blue"), bty = "n", cex = .9)
+
+#Log-Rank Test (W = 1) not significant
+survdiff(Surv(surv, delta) ~ TXGROUP, data = df, rho = 0)
+```
+
+```{r}
+#### By MAXFIB ####
+
+fit.bmt <- survfit(Surv(surv, delta)~MAXFIB, 
+                   data = df[complete.cases(df$MAXFIB), ])
+plot(fit.bmt, col = c('black','red', 'blue', 'purple', 'orange', 'forestgreen'), 
+     lty = c(1, 2, 3, 4, 5, 6), ylab = 'Estimated Survival Function', xlab = 'Time', 
+     ylim = c(0.7, 1),
+     main = 'Kaplan-Meier Estimates by Baseline Maximum Fibrosis')
+
+legend("bottomleft", c("0", "1", "2", "3", "4", "6"), lty = 1:6,
+       col = c('black', "red", "blue", 'purple', 'orange', 'forestgreen'), bty = "n", cex = .9)
+
+#Log-Rank Test (W = 1) not significant
+survdiff(Surv(surv, delta) ~ MAXFIB, data = df[complete.cases(df$MAXFIB), ], rho = 0)
+survdiff(Surv(surv, delta) ~ MAXFIB + strata(TXGROUP), data = df, rho = 0)
+survdiff(Surv(surv, delta) ~ strata(MAXFIB) + TXGROUP, data = df, rho = 0)
+
+#Cox’s Proportional Hazards Model 
+fit <- coxph(Surv(surv, delta) ~ FVC0+TXGROUP+Z1+Z2+Z3+Z4, 
+             data = df[complete.cases(df$MAXFIB), ],ties = "efron")
+summary(fit)
+
+#Get Cox-Snell residual based on Martingale residuals
+mg.residual <- resid(fit, type = "martingale")
+cs.residual <- df$delta - mg.residual
+
+#Graphical Plot
+fit.cs <- survfit(Surv(cs.residual, df$delta) ~ 1) #Get Kaplan-Meier estiamtes
+H.cs   <- cumsum(fit.cs$n.event/fit.cs$n.risk)
+plot(fit.cs$time, H.cs, type='s', col='blue', 
+     main = 'Cox-Snell Residual Plot', 
+     xlab = 'Residual', ylab = 'Nelson-Aalen Cum. Hazard') 
+#Note here that 'time' is the value of the Cox-Snell residual
+abline(0, 1, col='red',  lty = 2)
+
+#Variable Selection
+library(MASS)
+initial <- coxph(Surv(surv, delta) ~ TXGROUP, data = df[complete.cases(df$MAXFIB), ], 
+                 ties = "efron") ##first include the base model
+stepAIC(initial, scope = list(upper = ~ FVC0+TXGROUP+Z1+Z2+Z3+Z4+Z6, lower = ~ TXGROUP), 
+        direction = "both", trace = FALSE)
+```
+
+```{r}
+survdiff(Surv(surv, delta) ~ MAXFIB, data = df[!is.na(df$MAXFIB), ], 
+         subset = (TXGROUP == 1))
+
+survdiff(Surv(surv, delta) ~ MAXFIB, data = df[!is.na(df$MAXFIB), ], 
+         subset = (TXGROUP == 0))
+
+survdiff(Surv(surv, delta) ~ MAXFIB + strata(TXGROUP), data = df[!is.na(df$MAXFIB), ])
+```
+
+Competing risks:
+
+Method 1: Cause-Specific Cumulative Hazard
+```{r}
+# d1: treatment failure or death indicator
+# d2: informative dropout indicator
+df$d1 <- ifelse(df$failure_type == 1, 1, 0)
+df$d2 <- ifelse(df$failure_type == 2, 1, 0)
+fit.death <- survfit(Surv(surv, d1) ~ 1, data = df)
+fit.dropout <- survfit(Surv(surv, d2) ~ 1, data = df)
+death.na    <- cumsum(fit.death$n.event / fit.death$n.risk)
+dropout.na  <- cumsum(fit.dropout$n.event / fit.dropout$n.risk)
+```
+
+Method 2: CIF (Cumulative Incidence Function)
+```{r}
+fit.ci <- cuminc(ftime = df$surv, fstatus = df$failure_type, cencode = 0)
+fit.ci.death <- fit.ci$'1 1' #Time to death
+fit.ci.dropout   <- fit.ci$'1 2' #Time to informative dropout
+```
+
+```{r}
+plot(1 - exp(-dropout.na) ~ fit.dropout$time, type = 's', xlim = c(0, 24), ylim = c(0, .3),
+     main = 'Comparison of Probability of Informative dropout',
+     ylab = 'Dropout Probability', xlab = 'Months')
+lines(fit.ci.dropout$est ~ fit.ci.dropout$time, lty = 2, col = 'red')
+legend('bottomright', c('Cause-Specific', 'CIF'), lty = c(1, 2), col = c('black', 'red'), bty = 'n',
+       cex = .85)
+```
+
+
+```{r}
+plot(1 - exp(-death.na) ~ fit.death$time, type = 's', xlim = c(0, 24), ylim = c(0, .15),
+     main = 'Comparison of Probability of Treatment Failure or Death',
+     ylab = 'Treatment Failure or Death Probability', xlab = 'Months')
+lines(fit.ci.death$est ~ fit.ci.death$time, lty = 2, col = 'red')
+legend('bottomright', c('1-KME', 'CIF'), lty = c(1, 2), col = c('black', 'red'), bty = 'n',
+       cex = .85)
+```
+
+
+```{r}
+ti <- 1:24
+ci.all <- apply(timepoints(fit.ci, times = ti)$est, 2, sum)
+
+plot(ci.all  ~ ti , type = 's', xlim = c(0, 24), ylim = c(0, 0.4),
+     main = 'Interaction Between \n Treatment Failure or Death and Informative Dropout',
+     ylab = 'Probability', xlab = 'Months')
+lines(fit.ci.dropout$est ~ fit.ci.dropout$time, lty = 2, col = 'blue')
+lines(fit.ci.death$est~fit.ci.death$time, lty = 3, col = 'red')
+legend('topleft', c('Death+Dropout', 'Informative Dropout', 'Death'), 
+       lty = c(1, 3), col = c('black','blue', 'red'), bty = 'n',
+       cex = .65)
+abline(v = 400, col = 'grey', lty = 3)
+```
+
+```{r}
+df1 = df[complete.cases(df$MAXFIB), ]
+fit.crr1 <- crr(ftime = df1$surv, fstatus = df1$failure_type,
+                cov1 = df1[, c("FVC0", "TXGROUP", "MAXFIB")], 
+                failcode = 1, cencode = 0)
+fit.crr1
+```
+
+```{r}
+fit.crr2 <- crr(ftime = df1$surv, fstatus = df1$failure_type, 
+                cov1 = df1[, c("FVC0", "TXGROUP", "MAXFIB")], 
+                failcode = 2, cencode = 0)
+fit.crr2
+```
+
