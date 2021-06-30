@@ -1,1 +1,3 @@
 # Survival-Analysis
+
+This is a competing risk dataset from a scleroderma study. The dataset includes 140 patients with scleroderma-related interstitial lung disease. Patients in this experiment were randomly treated using either CYC or placebo for 12 months. To fit the model, we choose the “failure_type” as the outcome variable, which contains death (coded as 1), treatment failure (coded as 2), and censored (coded as 0). The predictors will be the rest of the variables in the dataset. FVC0 is the baseline value of FVC, and FIB0 is the baseline value of lung fibrosis. Finally, the interactions between FVC0 and CYC, and between FIB0 and CYC, were measured.
